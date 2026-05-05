@@ -1,0 +1,53 @@
+# 01-flinkdeployment.yaml — application-mode FlinkDeployment.
+#
+# Apply with:
+#   kubectl apply -f 01-flinkdeployment.yaml
+#
+# This creates ONE FlinkDeployment running ONE job. The operator
+# reconciles JobManager + TaskManager pods, manages savepoints on
+# upgrade, and rolls back if the new image fails to start.
+
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: order-totals
+  namespace: streaming
+spec:
+  image: registry.example.com/flink-jobs/order-totals:abc123
+  flinkVersion: v1_18
+  flinkConfiguration:
+    state.backend: rocksdb
+    state.backend.incremental: "true"
+    state.checkpoints.dir: s3://flink-checkpoints/order-totals
+    state.savepoints.dir: s3://flink-savepoints/order-totals
+    high-availability.type: kubernetes
+    high-availability.storageDir: s3://flink-ha/order-totals
+    execution.checkpointing.interval: 60s
+    execution.checkpointing.unaligned: "true"
+    metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+    metrics.reporter.prom.port: "9249"
+  serviceAccount: flink
+  jobManager:
+    resource:
+      memory: 2048m
+      cpu: 1
+  taskManager:
+    resource:
+      memory: 4096m
+      cpu: 2
+  job:
+    jarURI: local:///opt/flink/usrlib/order-totals.jar
+    entryClass: com.example.OrderTotalsJob
+    parallelism: 4
+    upgradeMode: savepoint     # savepoint on upgrade, restore on the next image
+    state: running
+    # Optional: pin the savepoint to restore from on initial deploy or rollback.
+    # initialSavepointPath: s3://flink-savepoints/order-totals/savepoint-abc-123
+  podTemplate:
+    spec:
+      containers:
+        - name: flink-main-container
+          # Mount Prometheus port for the operator's metric scraping.
+          ports:
+            - containerPort: 9249
+              name: metrics

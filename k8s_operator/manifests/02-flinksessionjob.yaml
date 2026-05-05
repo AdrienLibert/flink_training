@@ -1,0 +1,22 @@
+# 02-flinksessionjob.yaml — submit a job to an existing session cluster.
+#
+# Apply with:
+#   kubectl apply -f 02-flinksessionjob.yaml
+#
+# Use this when you want to share a long-lived session cluster across
+# many jobs (typical for SQL Gateway workloads or many small ad-hoc
+# pipelines). The session cluster itself is a separate
+# FlinkDeployment (kind: FlinkDeployment, with no `job:` block).
+
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkSessionJob
+metadata:
+  name: ad-hoc-query
+  namespace: streaming
+spec:
+  deploymentName: shared-session-cluster   # references a sibling FlinkDeployment
+  job:
+    jarURI: https://artifacts.example.com/jobs/ad-hoc-query-1.2.3.jar
+    entryClass: com.example.AdHocQuery
+    parallelism: 2
+    upgradeMode: stateless                 # session jobs typically do not migrate state

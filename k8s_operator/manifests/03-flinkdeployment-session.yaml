@@ -1,0 +1,28 @@
+# 03-flinkdeployment-session.yaml — the session cluster that
+# FlinkSessionJobs above attach to. Note the absence of `job:`.
+
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: shared-session-cluster
+  namespace: streaming
+spec:
+  image: flink:1.18.1
+  flinkVersion: v1_18
+  flinkConfiguration:
+    state.backend: rocksdb
+    state.checkpoints.dir: s3://flink-checkpoints/shared
+    high-availability.type: kubernetes
+    high-availability.storageDir: s3://flink-ha/shared
+    taskmanager.numberOfTaskSlots: "4"
+  serviceAccount: flink
+  jobManager:
+    resource:
+      memory: 2048m
+      cpu: 1
+  taskManager:
+    resource:
+      memory: 8192m
+      cpu: 4
+    replicas: 3                # static pool of 3 TMs × 4 slots = 12 slots total
+  # Note: no `job:` block. This is a SESSION cluster; jobs attach via FlinkSessionJob.
