@@ -1,0 +1,65 @@
+# sql-gateway.yaml — SQL Gateway as a session FlinkDeployment + Service.
+#
+# Apply with:
+#   kubectl apply -f sql-gateway.yaml
+#
+# The SQL Gateway is the production way to run SQL workloads — it's a
+# REST endpoint that accepts SQL, compiles to Flink jobs, and submits
+# them to the underlying session cluster. Each REST session has its
+# own catalog/temp tables; submitted jobs share the cluster's slots.
+
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: sql-gateway-cluster
+  namespace: streaming
+spec:
+  image: registry.example.com/flink-sql-gateway:1.18.1
+  flinkVersion: v1_18
+  flinkConfiguration:
+    state.backend: rocksdb
+    state.checkpoints.dir: s3://flink-checkpoints/sql-gateway
+    high-availability.type: kubernetes
+    high-availability.storageDir: s3://flink-ha/sql-gateway
+    taskmanager.numberOfTaskSlots: "4"
+    # SQL-specific
+    table.exec.mini-batch.enabled: "true"
+    table.exec.mini-batch.allow-latency: "1s"
+    table.exec.mini-batch.size: "1000"
+    table.exec.state.ttl: "12h"
+  serviceAccount: flink
+  jobManager:
+    resource:
+      memory: 2048m
+      cpu: 1
+  taskManager:
+    resource:
+      memory: 8192m
+      cpu: 4
+    replicas: 5
+  podTemplate:
+    spec:
+      containers:
+        - name: flink-main-container
+          # SQL Gateway runs alongside the JobManager in the same pod.
+          # It binds on port 8083 by default.
+          ports:
+            - containerPort: 8083
+              name: sql-gateway
+          env:
+            - name: SQL_GATEWAY_OPTS
+              value: "-Dsql-gateway.endpoint.rest.address=0.0.0.0"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sql-gateway
+  namespace: streaming
+spec:
+  selector:
+    app: sql-gateway-cluster   # operator labels JM pods with their cluster name
+    component: jobmanager
+  ports:
+    - port: 8083
+      targetPort: 8083
+      name: sql-gateway
