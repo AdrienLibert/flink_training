@@ -1,0 +1,48 @@
+# flink-conf.yaml — minimal production-shaped config
+#
+# This goes in $FLINK_HOME/conf/ on the cluster image.
+
+# ----- JobManager -----
+jobmanager.rpc.address: flink-jobmanager
+jobmanager.rpc.port: 6123
+jobmanager.bind-host: 0.0.0.0
+jobmanager.memory.process.size: 1600m
+
+# ----- TaskManager -----
+taskmanager.bind-host: 0.0.0.0
+taskmanager.memory.process.size: 4096m
+taskmanager.numberOfTaskSlots: 4
+
+# ----- Parallelism / scheduling -----
+parallelism.default: 4
+execution.runtime-mode: STREAMING
+# 'pipelined' for streaming; 'all-exchanges-blocking' for batch backfills.
+execution.batch-shuffle-mode: ALL_EXCHANGES_PIPELINED
+
+# ----- State / checkpoints -----
+state.backend: rocksdb
+state.checkpoints.dir: s3://flink-checkpoints/my-job
+state.savepoints.dir: s3://flink-savepoints/my-job
+state.backend.incremental: true
+execution.checkpointing.interval: 60s
+execution.checkpointing.min-pause: 30s
+execution.checkpointing.timeout: 10min
+execution.checkpointing.mode: EXACTLY_ONCE
+execution.checkpointing.unaligned: true
+
+# ----- High availability -----
+high-availability.type: kubernetes
+high-availability.storageDir: s3://flink-ha/my-job
+
+# ----- REST endpoint -----
+rest.port: 8081
+rest.address: flink-jobmanager
+rest.bind-address: 0.0.0.0
+
+# ----- Metrics (Prometheus pull) -----
+metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+metrics.reporter.prom.port: 9249
+metrics.system-resource: true
+
+# ----- Logging -----
+env.java.opts.all: -Xlog:gc*:gc.log:time,level,tags
