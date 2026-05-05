@@ -1,0 +1,83 @@
+# 04-monitoring.yaml — Prometheus ServiceMonitor + Grafana dashboard ConfigMap.
+#
+# Prometheus Operator scrapes anything with a ServiceMonitor matching
+# its `serviceMonitorSelector`. Adjust the labels to match your cluster.
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: orders-pipeline-metrics
+  namespace: streaming
+  labels:
+    app.kubernetes.io/component: jobmanager
+    flink-app: orders-pipeline
+spec:
+  selector:
+    app: orders-pipeline       # operator labels JM/TM pods with `app: <FlinkDeployment.name>`
+  ports:
+    - name: metrics
+      port: 9249
+      targetPort: metrics
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: orders-pipeline
+  namespace: streaming
+  labels:
+    release: prometheus  # match Prometheus Operator's serviceMonitorSelector
+spec:
+  selector:
+    matchLabels:
+      app.kubernetes.io/component: jobmanager
+      flink-app: orders-pipeline
+  endpoints:
+    - port: metrics
+      interval: 30s
+      path: /
+  namespaceSelector:
+    matchNames:
+      - streaming
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: orders-pipeline-alerts
+  namespace: streaming
+  labels:
+    release: prometheus
+spec:
+  groups:
+    - name: flink-orders-pipeline
+      rules:
+        - alert: FlinkJobDown
+          expr: up{job="orders-pipeline-metrics"} == 0
+          for: 5m
+          labels:
+            severity: page
+          annotations:
+            summary: "Flink job orders-pipeline is down"
+
+        - alert: FlinkCheckpointFailing
+          expr: increase(flink_jobmanager_job_numberOfFailedCheckpoints{job_name="orders-pipeline"}[10m]) > 2
+          for: 10m
+          labels:
+            severity: page
+          annotations:
+            summary: "Repeated checkpoint failures on orders-pipeline"
+
+        - alert: FlinkBackpressureSustained
+          expr: max by (operator_name) (avg_over_time(flink_taskmanager_job_task_backPressuredTimeMsPerSecond{job_name="orders-pipeline"}[15m])) > 600
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Sustained backpressure on {{ $labels.operator_name }}"
+
+        - alert: FlinkCheckpointDurationTooLong
+          expr: avg_over_time(flink_jobmanager_job_lastCheckpointDuration{job_name="orders-pipeline"}[15m]) > 300000
+          for: 15m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Checkpoints averaging > 5min on orders-pipeline"

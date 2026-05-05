@@ -1,0 +1,90 @@
+# 03-flinkdeployment.yaml — the production-shape FlinkDeployment.
+
+apiVersion: flink.apache.org/v1beta1
+kind: FlinkDeployment
+metadata:
+  name: orders-pipeline
+  namespace: streaming
+  annotations:
+    # Lets ArgoCD diff cleanly — operator's runtime fields should not
+    # be reconciled by Argo.
+    argocd.argoproj.io/sync-options: ServerSideApply=true
+spec:
+  # Image-tag-driven deploys. Bump the tag, kubectl apply, operator
+  # takes a savepoint and rolls forward. Bad image → automatic
+  # rollback (Lesson 16).
+  image: registry.example.com/flink-jobs/orders-pipeline:v2.3.1
+  flinkVersion: v1_18
+
+  flinkConfiguration:
+    # ----- Reliability (Lesson 18) -----
+    state.backend: rocksdb
+    state.backend.incremental: "true"
+    state.checkpoints.dir: s3://flink-checkpoints/orders-pipeline
+    state.savepoints.dir: s3://flink-savepoints/orders-pipeline
+    high-availability.type: kubernetes
+    high-availability.storageDir: s3://flink-ha/orders-pipeline
+    execution.checkpointing.interval: "60s"
+    execution.checkpointing.min-pause: "30s"
+    execution.checkpointing.timeout: "10min"
+    execution.checkpointing.unaligned: "true"
+
+    # ----- Performance (Lesson 21) -----
+    state.backend.rocksdb.memory.managed: "true"
+    state.backend.rocksdb.predefined-options: FLASH_SSD_OPTIMIZED
+    state.backend.rocksdb.timer-service.factory: ROCKSDB
+    taskmanager.network.memory.buffers-per-channel: "8"
+
+    # ----- Observability (Lesson 19) -----
+    metrics.reporters: prom
+    metrics.reporter.prom.factory.class: org.apache.flink.metrics.prometheus.PrometheusReporterFactory
+    metrics.reporter.prom.port: "9249"
+
+    # ----- SQL miniBatch (Lesson 12, 17) -----
+    table.exec.mini-batch.enabled: "true"
+    table.exec.mini-batch.allow-latency: "1s"
+    table.exec.mini-batch.size: "1000"
+    table.exec.state.ttl: "12h"
+
+    # ----- Autoscaler (Lesson 16) -----
+    job.autoscaler.enabled: "true"
+    job.autoscaler.metrics.window: "10m"
+    job.autoscaler.target.utilization: "0.7"
+    pipeline.max-parallelism: "1024"
+
+  serviceAccount: flink
+  jobManager:
+    resource:
+      memory: 2048m
+      cpu: 1
+    replicas: 2  # HA — one active, one standby
+  taskManager:
+    resource:
+      memory: 8192m
+      cpu: 4
+    # No `replicas` — autoscaler manages this.
+
+  job:
+    jarURI: local:///opt/flink/usrlib/orders-pipeline.jar
+    entryClass: com.example.OrdersPipelineJob
+    parallelism: 8
+    upgradeMode: savepoint
+    state: running
+
+  podTemplate:
+    spec:
+      containers:
+        - name: flink-main-container
+          ports:
+            - containerPort: 9249
+              name: metrics
+          envFrom:
+            - secretRef:
+                name: postgres-creds
+            - secretRef:
+                name: aws-creds
+          resources:
+            requests:
+              ephemeral-storage: 10Gi  # local-recovery + RocksDB scratch
+            limits:
+              ephemeral-storage: 20Gi
