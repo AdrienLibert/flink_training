@@ -1,0 +1,34 @@
+# rocksdb-tuned.yaml — production-shaped RocksDB tuning fragment.
+#
+# Drop these into flink-conf.yaml or your FlinkDeployment's
+# spec.flinkConfiguration.
+
+# ----- State backend -----
+state.backend: rocksdb
+state.backend.incremental: "true"
+state.backend.local-recovery: "true"          # restore from local SSD if pod survives
+
+# ----- RocksDB memory split -----
+# Default split: 30% write buffer, 50% cache, 20% misc. Tweak via:
+state.backend.rocksdb.memory.managed: "true"  # let Flink manage RocksDB memory from "managed" pool
+state.backend.rocksdb.memory.write-buffer-ratio: "0.4"   # default 0.5
+state.backend.rocksdb.memory.high-prio-pool-ratio: "0.1"
+
+# ----- RocksDB I/O -----
+state.backend.rocksdb.compression.per.level: "LZ4_COMPRESSION"
+state.backend.rocksdb.timer-service.factory: ROCKSDB     # store timers in RocksDB, not heap
+state.backend.rocksdb.predefined-options: SPINNING_DISK_OPTIMIZED_HIGH_MEM
+# Override any individual option:
+state.backend.rocksdb.thread.num: "4"
+
+# ----- Checkpoint timing (paired with RocksDB) -----
+execution.checkpointing.interval: "60s"
+execution.checkpointing.min-pause: "30s"
+execution.checkpointing.timeout: "10min"
+execution.checkpointing.unaligned: "true"
+execution.checkpointing.aligned-checkpoint-timeout: "30s"  # fall back to unaligned if aligned takes too long
+
+# ----- Network buffers (the second-most-tuned area) -----
+taskmanager.network.memory.buffers-per-channel: "8"        # default 2 — more for high-fanout joins
+taskmanager.network.memory.floating-buffers-per-gate: "16" # default 8
+taskmanager.network.netty.client.connectTimeoutSec: "60"
